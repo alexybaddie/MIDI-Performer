@@ -27,7 +27,8 @@ def load_midi_events(midi_path, include_velocity=False):
     
     events = []
     for instrument in pm.instruments:
-        # (Optional) You can filter out drums: if instrument.is_drum: continue
+        # Optionally, filter out drums:
+        # if instrument.is_drum: continue
         for note in instrument.notes:
             duration = note.end - note.start
             if include_velocity:
@@ -43,6 +44,15 @@ class MidiPairDataset(Dataset):
     Expects a data root directory where each piece is a subdirectory containing:
        - score.mid (non-live, quantized)
        - performance.mid (live performance)
+       
+    **Important:**  
+    For simplicity, this loader assumes that the note events between score and performance 
+    should correspond one-to-one. If there is a mismatch in event counts, it will truncate 
+    both sequences to the minimum length.
+    
+    **Future improvement:**  
+    Consider implementing proper alignment (e.g., dynamic time warping) and key normalization 
+    (transposing to a canonical key) so that the model generalizes across different keys.
     """
     def __init__(self, data_root, max_seq_len=500):
         self.data_root = data_root
@@ -72,10 +82,13 @@ class MidiPairDataset(Dataset):
         score_events = load_midi_events(score_path, include_velocity=False)
         perf_events  = load_midi_events(perf_path, include_velocity=True)
         
-        # IMPORTANT: In a real system, you should align events between score and performance.
-        # Here we assume the events are in order and correspond one-to-one.
+        # If the number of events mismatch, print a warning and truncate both to the minimum length.
         if len(score_events) != len(perf_events):
-            raise ValueError(f"Mismatch in number of events between {score_path} and {perf_path}")
+            print(f"Warning: Mismatch in number of events between {score_path} and {perf_path}. "
+                  "Truncating to the minimum number of events.")
+            min_len = min(len(score_events), len(perf_events))
+            score_events = score_events[:min_len]
+            perf_events = perf_events[:min_len]
         
         # Convert events to numpy arrays.
         # Score: (num_events, 3): [onset, pitch, duration]
@@ -85,8 +98,8 @@ class MidiPairDataset(Dataset):
         
         # For training, we assume that pitch and duration are “copied” from the score.
         # We want the model to learn the expressive parts: the (onset, velocity) differences.
-        # For simplicity, we let the input be the score events and the target be the performance’s
-        # onset and velocity.
+        # Input: score events (onset, pitch, duration)
+        # Target: performance's expressive data: (onset, velocity)
         src = score_arr  # shape: (num_events, 3)
         trg = perf_arr[:, [0, 3]]  # shape: (num_events, 2) -> [onset, velocity]
         

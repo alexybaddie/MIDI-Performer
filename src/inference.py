@@ -42,6 +42,8 @@ def pad_or_truncate_array(arr, max_len):
 
 def generate_performance(model, score_midi_path, output_midi_path):
     # Load score MIDI events. For input, we ignore velocity.
+    # NOTE: If the user-input MIDI is in a different key or has multiple tracks,
+    # consider adding a pre-processing step here to (a) merge tracks and (b) transpose to a canonical key.
     score_events = load_midi_events(score_midi_path, include_velocity=False)
     score_arr = np.array(score_events)  # shape: (num_events, 3)
     score_arr = pad_or_truncate_array(score_arr, MAX_SEQ_LEN)
@@ -57,6 +59,8 @@ def generate_performance(model, score_midi_path, output_midi_path):
     
     # Now, combine the original score’s pitch and duration with the predicted onset and velocity.
     # (For simplicity, we assume the model outputs absolute onset times.)
+    # NOTE: Since the model was trained on a dataset in a certain key, if the input score is transposed,
+    # the performance output may be less accurate. For better generalization, consider adding key normalization.
     pm = pretty_midi.PrettyMIDI()
     instrument = pretty_midi.Instrument(program=0)  # e.g., piano
     for i, event in enumerate(score_events):
@@ -65,7 +69,7 @@ def generate_performance(model, score_midi_path, output_midi_path):
         score_onset, pitch, duration = event
         pred_onset, pred_velocity = predicted[i]
         # You can choose to add the predicted deviation to the original onset:
-        final_onset = pred_onset  # or score_onset + pred_onset if model learns deviations.
+        final_onset = pred_onset  # or score_onset + pred_onset if the model learns deviations.
         velocity = int(np.clip(pred_velocity, 0, 127))
         note = pretty_midi.Note(velocity=velocity, pitch=int(pitch),
                                 start=final_onset, end=final_onset + duration)
